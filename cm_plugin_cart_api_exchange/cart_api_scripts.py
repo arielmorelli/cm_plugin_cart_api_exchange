@@ -1,4 +1,4 @@
-from core.model.plugin import Plugin
+from core.model.plugin_configuration import PluginConfiguration
 from core.model.library import Library
 from core.model.identifier import Identifier
 from core.model.licensing import LicensePool

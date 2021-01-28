@@ -22,7 +22,7 @@ Note: To use a local pypi server, please follow [this tutorial](https://github.c
 
 # Installing the plugin
 
-Please use `pip install -U --index-url <pypi_server_name> cm-cart-api-exchange`
+Please use `pip install -U --index-url <pypi_server_name> cm-plugin-cart-api-exchange`
 
 # Running tests
 
