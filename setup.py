@@ -8,4 +8,6 @@ setup(
     version="0.0.1",
     description="Enable automatic cart creation in DPLA Exchange account",
     url="https://github.com/arielmorelli/cm_plugin_cart_api_exchange",
+    python_requres='<=2.7',
+    install_requires=[],
 )
