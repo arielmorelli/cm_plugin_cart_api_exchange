@@ -27,13 +27,13 @@ class CartApiScript(Script):
         super(CartApiScript, self).__init__(_db=_db)
 
     def run(self, plugin_name):
-        plugin_model = Plugin()
+        plugin_model = PluginConfiguration()
         internal_plugin_name = INTERNAL+plugin_name
 
         libraries = self._db.query(Library).all()
 
         for library in libraries:
-            values = Plugin().get_saved_values(
+            values = PluginConfiguration().get_saved_values(
                 self._db, library.short_name, plugin_name
             )
             
