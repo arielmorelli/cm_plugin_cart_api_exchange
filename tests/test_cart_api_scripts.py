@@ -57,7 +57,7 @@ class TestCartApiScripts(DatabaseTest):
         )
         self._db.execute(ins)
 
-    def test_run(self):
+    def test_run_with_config(self):
         cart_script = CartApiScript(_db=self._db)
         try:
             cart_script.run("a-plugin")
@@ -104,6 +104,7 @@ class TestCartApiScripts(DatabaseTest):
         )
 
         cart_script.run(plugin_name)
+
         # called twice, one for DPLA and one for ANY
         assert cart_script._run_expired_items.call_count == 2
         assert cart_script._run_expiring_items.call_count == 2

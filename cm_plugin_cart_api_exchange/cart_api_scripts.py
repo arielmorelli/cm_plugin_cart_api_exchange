@@ -7,6 +7,8 @@ from core.model.collection import Collection, collections_libraries
 from core.scripts import Script
 from cart_api_operations import ExchangeApi
 
+import logging
+
 
 KEY_USER = "user"
 KEY_PASSWORD = "password"
@@ -36,16 +38,16 @@ class CartApiScript(Script):
             values = PluginConfiguration().get_saved_values(
                 self._db, library.short_name, plugin_name
             )
-            
+
             user = None
             user_config = values.get(KEY_USER)
             if user_config:
-                user = user_config._value
+                user = user_config
 
             pwd = None
             pwd_config = values.get(KEY_PASSWORD)
             if pwd_config:
-                pwd = pwd_config._value
+                pwd = pwd_config
             exchange_api = ExchangeApi(user, pwd)
 
             internal_values = plugin_model.get_saved_values(
@@ -53,7 +55,7 @@ class CartApiScript(Script):
             )
 
             if values.get(KEY_EXPIRED_FROM_DPLA) and \
-                values[KEY_EXPIRED_FROM_DPLA]._value == TRUE_VALUE:
+                values[KEY_EXPIRED_FROM_DPLA] == TRUE_VALUE:
                     self._run_expired_items(
                         exchange_api, internal_values, library, vendor=DPLA
                     )
@@ -61,7 +63,7 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
             if values.get(KEY_EXPIRED_FROM_ANY) and \
-                values[KEY_EXPIRED_FROM_ANY]._value == TRUE_VALUE:
+                values[KEY_EXPIRED_FROM_ANY] == TRUE_VALUE:
                     self._run_expired_items(
                         exchange_api, internal_values, library
                     )
@@ -69,7 +71,7 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
             if values.get(KEY_EXPIRING_FROM_DPLA) and \
-                values[KEY_EXPIRING_FROM_DPLA]._value == TRUE_VALUE:
+                values[KEY_EXPIRING_FROM_DPLA] == TRUE_VALUE:
                     self._run_expiring_items(
                         exchange_api, internal_values, library, vendor=DPLA
                     )
@@ -77,7 +79,7 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
             if values.get(KEY_EXPIRING_FROM_ANY) and \
-                values[KEY_EXPIRING_FROM_ANY]._value == TRUE_VALUE:
+                values[KEY_EXPIRING_FROM_ANY] == TRUE_VALUE:
                     self._run_expiring_items(
                         exchange_api, internal_values, library
                     )
@@ -85,7 +87,7 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
             if values.get(KEY_LONG_QUEUE_FROM_DPLA) and \
-                values[KEY_LONG_QUEUE_FROM_DPLA]._value == TRUE_VALUE:
+                values[KEY_LONG_QUEUE_FROM_DPLA] == TRUE_VALUE:
                     self._run_long_queue_items(
                         exchange_api, internal_values, library, vendor=DPLA
                     )
@@ -93,7 +95,7 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
             if values.get(KEY_LONG_QUEUE_FROM_ANY) and \
-                values[KEY_LONG_QUEUE_FROM_ANY]._value == TRUE_VALUE:
+                values[KEY_LONG_QUEUE_FROM_ANY] == TRUE_VALUE:
                     self._run_long_queue_items(
                         exchange_api, internal_values, library
                     )
@@ -101,24 +103,21 @@ class CartApiScript(Script):
                         self._db, library.short_name, internal_plugin_name, internal_values
                     )
 
-    def _run_expired_items(self, exchange_api, internal_values, library, vendor=None):
-        if vendor == DPLA:
-            cart_key = KEY_EXPIRED_FROM_DPLA
-        elif not vendor:
-            cart_key = KEY_EXPIRED_FROM_ANY
-        else:
-            raise NotImplementedError
-
-        cart_name = library.name + " " + cart_key
+    def _get_or_create_cart(self, exchange_api, library_name, cart_key, internal_values):
+        cart_name = library_name + " " + cart_key
         cart_url = internal_values.get(cart_key)
-        if not cart_url:
+        if cart_url:
+            cart_url = cart_url
+        else:
             cart_url = exchange_api.create_cart(cart_name)
             internal_values[cart_key] = cart_url
             try:
                 self._db.commit()
             except Exception as ex:
                 self._db.rollback()
+        return cart_name, cart_url
 
+    def _get_licenses_query(self, library, vendor):
         target_collections = self._db.query(
             Collection,
             collections_libraries
@@ -133,11 +132,9 @@ class CartApiScript(Script):
         ).filter(
             LicensePool.open_access.is_(False)
         ).filter(
-            LicensePool.licenses_available == 0,
-        ).filter(
             LicensePool.collection_id.in_([t[0].id for t in target_collections])
         )
-        
+
         if vendor == DPLA:
             dpla_datasource = self._db.query(
                 DataSource
@@ -150,8 +147,10 @@ class CartApiScript(Script):
             licenses_query = licenses_query.filter(
                 LicensePool.data_source_id == dpla_datasource.id
             )
+
+        return licenses_query
         
-        licenses = licenses_query.all()
+    def _get_items_from_licenses(self, licenses):
         items = {}
         for license in licenses:
             if license.identifier_id:
@@ -165,12 +164,39 @@ class CartApiScript(Script):
 
         for identifier in identifiers:
             items[identifier.id]["identifier"] = identifier.identifier
+            if identifier.type != "ISBN":
+                for equivalent in identifier.equivalencies:
+                    equivalent.output.type != "ISBN"
+                    items[identifier.id]["identifier"] = equivalent.output.identifier
+        return items
 
+    def _run_expired_items(self, exchange_api, internal_values, library, vendor=None):
+        logging.info("Running expired queue. Library: %s. vendor %s", library.name, vendor)
+        if vendor == DPLA:
+            cart_key = KEY_EXPIRED_FROM_DPLA
+        elif not vendor:
+            cart_key = KEY_EXPIRED_FROM_ANY
+        else:
+            raise NotImplementedError
+
+        cart_name, cart_url = self._get_or_create_cart(exchange_api, library.name,
+                                                       cart_key, internal_values)
+
+        licenses_query = self._get_licenses_query(library, vendor)
+        licenses_query = licenses_query.filter(
+            LicensePool.licenses_available == 0,
+        )
+        licenses = licenses_query.all()
+
+        items = self._get_items_from_licenses(licenses)
+            
         if items:
             exchange_api.send_items(cart_url, items, cart_name)
-
+        else:
+            logging.warning("No items found.")
 
     def _run_expiring_items(self, exchange_api, internal_values, library, vendor=None):
+        logging.info("Running expiring queue. Library: %s. vendor %s", library.name, vendor)
         if vendor == DPLA:
             cart_key = KEY_EXPIRING_FROM_DPLA
         elif not vendor:
@@ -178,68 +204,26 @@ class CartApiScript(Script):
         else:
             raise NotImplementedError
 
-        cart_name = library.name + " " + cart_key
-        cart_url = internal_values.get(cart_key)
-        if not cart_url:
-            cart_url = exchange_api.create_cart(cart_name)
-            internal_values[cart_key] = cart_url
-            try:
-                self._db.commit()
-            except Exception as ex:
-                self._db.rollback()
+        cart_name, cart_url = self._get_or_create_cart(exchange_api, library.name,
+                                                       cart_key, internal_values)
 
-        target_collections = self._db.query(
-            Collection,
-            collections_libraries
-        ).filter(
-            Collection.id == collections_libraries.columns.collection_id
-        ).filter(
-            collections_libraries.columns.library_id == library.id
-        ).all()
-
-        licenses_query = self._db.query(
-            LicensePool
-        ).filter(
-            LicensePool.open_access.is_(False)
-        ).filter(
+        licenses_query = self._get_licenses_query(library, vendor)
+        licenses_query = licenses_query.filter(
             LicensePool.licenses_available > 0,
         ).filter(
             LicensePool.licenses_available <= 5,
-        ).filter(
-            LicensePool.collection_id.in_([t[0].id for t in target_collections])
         )
-
-        if vendor == DPLA:
-            dpla_datasource = self._db.query(
-                DataSource
-            ).filter(
-                DataSource.name == "DPLA Exchange"
-            ).first()
-
-            licenses_query = licenses_query.filter(
-                LicensePool.data_source_id == dpla_datasource.id
-            )
-        
         licenses = licenses_query.all()
-        items = {}
-        for license in licenses:
-            if license.identifier_id:
-                items[license.identifier_id] = {"copies": license.licenses_available}
 
-        identifiers = self._db.query(
-            Identifier
-        ).filter(
-            Identifier.id.in_([l.identifier_id for l in licenses])
-        ).all()
-
-        for identifier in identifiers:
-            items[identifier.id]["identifier"] = identifier.identifier
-
+        items = self._get_items_from_licenses(licenses)
+            
         if items:
             exchange_api.send_items(cart_url, items, cart_name)
-
+        else:
+            logging.warning("No items found.")
 
     def _run_long_queue_items(self, exchange_api, internal_values, library, vendor=None):
+        logging.info("Running long queue. Library: %s. vendor %s", library.name, vendor)
         if vendor == DPLA:
             cart_key = KEY_LONG_QUEUE_FROM_DPLA
         elif not vendor:
@@ -247,61 +231,18 @@ class CartApiScript(Script):
         else:
             raise NotImplementedError
 
-        cart_name = library.name + " " + cart_key
-        cart_url = internal_values.get(cart_key)
-        if not cart_url:
-            cart_url = exchange_api.create_cart(cart_name)
-            internal_values[cart_key] = cart_url
-            try:
-                self._db.commit()
-            except Exception as ex:
-                self._db.rollback()
+        cart_name, cart_url = self._get_or_create_cart(exchange_api, library.name,
+                                                       cart_key, internal_values)
 
-        target_collections = self._db.query(
-            Collection,
-            collections_libraries
-        ).filter(
-            Collection.id == collections_libraries.columns.collection_id
-        ).filter(
-            collections_libraries.columns.library_id == library.id
-        ).all()
-
-        licenses_query = self._db.query(
-            LicensePool
-        ).filter(
-            LicensePool.open_access.is_(False)
-        ).filter(
+        licenses_query = self._get_licenses_query(library, vendor)
+        licenses_query = licenses_query.filter(
             LicensePool.patrons_in_hold_queue > 5,
-        ).filter(
-            LicensePool.collection_id.in_([t[0].id for t in target_collections])
         )
-
-        if vendor == DPLA:
-            dpla_datasource = self._db.query(
-                DataSource
-            ).filter(
-                DataSource.name == "DPLA Exchange"
-            ).first()
-
-            licenses_query = licenses_query.filter(
-                LicensePool.data_source_id == dpla_datasource.id
-            )
-        
         licenses = licenses_query.all()
-        items = {}
-        for license in licenses:
-            if license.identifier_id:
-                items[license.identifier_id] = {"copies": license.licenses_available}
 
-        identifiers = self._db.query(
-            Identifier
-        ).filter(
-            Identifier.id.in_([l.identifier_id for l in licenses])
-        ).all()
-
-        for identifier in identifiers:
-            items[identifier.id]["identifier"] = identifier.identifier
+        items = self._get_items_from_licenses(licenses)
 
         if items:
             exchange_api.send_items(cart_url, items, cart_name)
-
+        else:
+            logging.warning("No items found.")
