@@ -23,6 +23,7 @@ class CartApiPlugin(object):
     from the Circulation Manager (CM) plugin extension.
 
     Attributes:
+        FREQUENCY (int, optional): integer represing minimum hours to execute.
         SCRIPTS (list): List of scripts to run in the backend of CM.
         FIELDS (list): List of fields to add in the admin interface of CM.
     """
