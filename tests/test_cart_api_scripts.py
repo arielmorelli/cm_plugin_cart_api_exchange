@@ -10,9 +10,11 @@ from core.model.configuration import ExternalIntegration
 from core.model import get_one_or_create
 
 from mock import MagicMock, ANY
+from sqlalchemy import desc
 
 from cm_plugin_cart_api_exchange.cart_api_scripts import (
     CartApiScript,
+    KEY_DATASOURCE,
     KEY_EXPIRED_FROM_DPLA,
     KEY_EXPIRED_FROM_ANY,
     KEY_EXPIRING_FROM_DPLA,
@@ -21,7 +23,6 @@ from cm_plugin_cart_api_exchange.cart_api_scripts import (
     KEY_LONG_QUEUE_FROM_ANY,
     TRUE_VALUE,
     FALSE_VALUE,
-    DPLA,
 )
 from cm_plugin_cart_api_exchange.cart_api_operations import ExchangeApi
 
@@ -33,8 +34,15 @@ class TestCartApiScripts(DatabaseTest):
         self.exchange_api = ExchangeApi("user", "password")
         self.exchange_api.send_items = MagicMock()
 
+        datasource_with_biggest_id = self._db.query(
+            DataSource
+        ).order_by(desc(DataSource.id)).first()
+        self.vendor_id = 1
+        if datasource_with_biggest_id:
+            self.vendor_id = datasource_with_biggest_id.id + 1
+
         self.datasource, _ = get_one_or_create(self._db,
-            DataSource, name="DPLA Exchange"
+            DataSource, name="DPLA Exchange For Tests Only", id=self.vendor_id
         )
 
         self.identifier, _ = get_one_or_create(self._db,
@@ -157,7 +165,7 @@ class TestCartApiScripts(DatabaseTest):
             self._db, LicensePool, work_id=work.id, collection_id=self.collection.id,
             identifier_id=self.identifier.id, open_access=False, licenses_available=0,
         )
-        self.cart_script._run_expired_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_expired_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         self.exchange_api.send_items.assert_not_called()
 
         # Create with expired license being DPLA and filtering by DPLA
@@ -167,7 +175,7 @@ class TestCartApiScripts(DatabaseTest):
             identifier_id=self.identifier.id, open_access=False, licenses_available=0,
             data_source_id=self.datasource.id
         )
-        self.cart_script._run_expired_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_expired_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         called_url, called_items, _ = self.exchange_api.send_items.call_args[0]
         assert called_url == internal_value[KEY_EXPIRED_FROM_DPLA]
         assert len(called_items) == 1
@@ -229,7 +237,7 @@ class TestCartApiScripts(DatabaseTest):
             self._db, LicensePool, work_id=work.id, collection_id=self.collection.id,
             identifier_id=self.identifier.id, open_access=False, licenses_available=2,
         )
-        self.cart_script._run_expiring_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_expiring_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         self.exchange_api.send_items.assert_not_called()
 
         # Create with expiring license being DPLA and filtering by DPLA
@@ -239,7 +247,7 @@ class TestCartApiScripts(DatabaseTest):
             identifier_id=self.identifier.id, open_access=False, licenses_available=2,
             data_source_id=self.datasource.id
         )
-        self.cart_script._run_expiring_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_expiring_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         called_url, called_items, _ = self.exchange_api.send_items.call_args[0]
         assert called_url == internal_value[KEY_EXPIRING_FROM_DPLA]
         assert len(called_items) == 1
@@ -291,7 +299,7 @@ class TestCartApiScripts(DatabaseTest):
             self._db, LicensePool, work_id=work.id, collection_id=self.collection.id,
             identifier_id=self.identifier.id, open_access=False, patrons_in_hold_queue=100,
         )
-        self.cart_script._run_long_queue_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_long_queue_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         self.exchange_api.send_items.assert_not_called()
 
         # Create with long queue license being DPLA and filtering by DPLA
@@ -301,7 +309,7 @@ class TestCartApiScripts(DatabaseTest):
             identifier_id=self.identifier.id, open_access=False, patrons_in_hold_queue=100,
             data_source_id=self.datasource.id
         )
-        self.cart_script._run_long_queue_items(self.exchange_api, internal_value, self.library, DPLA)
+        self.cart_script._run_long_queue_items(self.exchange_api, internal_value, self.library, self.vendor_id)
         called_url, called_items, _ = self.exchange_api.send_items.call_args[0]
         assert called_url == internal_value[KEY_LONG_QUEUE_FROM_DPLA]
         assert len(called_items) == 1

@@ -12,6 +12,7 @@ import logging
 
 KEY_USER = "user"
 KEY_PASSWORD = "password"
+KEY_DATASOURCE = "datasource-id"
 KEY_EXPIRED_FROM_DPLA = "expired-from-dpla"
 KEY_EXPIRED_FROM_ANY = "expired-from-any"
 KEY_EXPIRING_FROM_DPLA = "expiring-from-dpla"
@@ -20,9 +21,15 @@ KEY_LONG_QUEUE_FROM_DPLA= "long-queue-from-dpla"
 KEY_LONG_QUEUE_FROM_ANY = "long-queue-from-any"
 TRUE_VALUE = "true"
 FALSE_VALUE = "false"
-DPLA = "DPLA"
 
 INTERNAL = "_internal."
+
+
+class GetDatasourcesScript(Script):
+    def get_datasources(self):
+        datasources = self._db.query(DataSource).all()
+        return [{"key": datasource.id, "label": datasource.name}
+                for datasource in datasources]
 
 class CartApiScript(Script):
     def __init__(self, _db=None):
@@ -54,10 +61,11 @@ class CartApiScript(Script):
                 self._db, library.short_name, internal_plugin_name
             )
 
+            vendor = internal_values.get(KEY_DATASOURCE)
             if values.get(KEY_EXPIRED_FROM_DPLA) and \
                 values[KEY_EXPIRED_FROM_DPLA] == TRUE_VALUE:
                     self._run_expired_items(
-                        exchange_api, internal_values, library, vendor=DPLA
+                        exchange_api, internal_values, library, vendor=vendor
                     )
                     plugin_model.save_values(
                         self._db, library.short_name, internal_plugin_name, internal_values
@@ -73,7 +81,7 @@ class CartApiScript(Script):
             if values.get(KEY_EXPIRING_FROM_DPLA) and \
                 values[KEY_EXPIRING_FROM_DPLA] == TRUE_VALUE:
                     self._run_expiring_items(
-                        exchange_api, internal_values, library, vendor=DPLA
+                        exchange_api, internal_values, library, vendor=vendor
                     )
                     plugin_model.save_values(
                         self._db, library.short_name, internal_plugin_name, internal_values
@@ -89,7 +97,7 @@ class CartApiScript(Script):
             if values.get(KEY_LONG_QUEUE_FROM_DPLA) and \
                 values[KEY_LONG_QUEUE_FROM_DPLA] == TRUE_VALUE:
                     self._run_long_queue_items(
-                        exchange_api, internal_values, library, vendor=DPLA
+                        exchange_api, internal_values, library, vendor=vendor
                     )
                     plugin_model.save_values(
                         self._db, library.short_name, internal_plugin_name, internal_values
@@ -117,7 +125,7 @@ class CartApiScript(Script):
                 self._db.rollback()
         return cart_name, cart_url
 
-    def _get_licenses_query(self, library, vendor):
+    def _get_licenses_query(self, library, vendor_id):
         target_collections = self._db.query(
             Collection,
             collections_libraries
@@ -135,17 +143,9 @@ class CartApiScript(Script):
             LicensePool.collection_id.in_([t[0].id for t in target_collections])
         )
 
-        if vendor == DPLA:
-            dpla_datasource = self._db.query(
-                DataSource
-            ).filter(
-                DataSource.name != None
-            ).filter(
-                DataSource.name == "DPLA Exchange"
-            ).first()
-
+        if vendor_id:
             licenses_query = licenses_query.filter(
-                LicensePool.data_source_id == dpla_datasource.id
+                LicensePool.data_source_id == vendor_id
             )
 
         return licenses_query
@@ -172,7 +172,7 @@ class CartApiScript(Script):
 
     def _run_expired_items(self, exchange_api, internal_values, library, vendor=None):
         logging.info("Running expired queue. Library: %s. vendor %s", library.name, vendor)
-        if vendor == DPLA:
+        if vendor:
             cart_key = KEY_EXPIRED_FROM_DPLA
         elif not vendor:
             cart_key = KEY_EXPIRED_FROM_ANY
@@ -189,7 +189,7 @@ class CartApiScript(Script):
         licenses = licenses_query.all()
 
         items = self._get_items_from_licenses(licenses)
-            
+
         if items:
             exchange_api.send_items(cart_url, items, cart_name)
         else:
@@ -197,7 +197,7 @@ class CartApiScript(Script):
 
     def _run_expiring_items(self, exchange_api, internal_values, library, vendor=None):
         logging.info("Running expiring queue. Library: %s. vendor %s", library.name, vendor)
-        if vendor == DPLA:
+        if vendor:
             cart_key = KEY_EXPIRING_FROM_DPLA
         elif not vendor:
             cart_key = KEY_EXPIRING_FROM_ANY
@@ -216,7 +216,7 @@ class CartApiScript(Script):
         licenses = licenses_query.all()
 
         items = self._get_items_from_licenses(licenses)
-            
+
         if items:
             exchange_api.send_items(cart_url, items, cart_name)
         else:
@@ -224,7 +224,7 @@ class CartApiScript(Script):
 
     def _run_long_queue_items(self, exchange_api, internal_values, library, vendor=None):
         logging.info("Running long queue. Library: %s. vendor %s", library.name, vendor)
-        if vendor == DPLA:
+        if vendor:
             cart_key = KEY_LONG_QUEUE_FROM_DPLA
         elif not vendor:
             cart_key = KEY_LONG_QUEUE_FROM_ANY

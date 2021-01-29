@@ -1,6 +1,7 @@
 from cart_api_scripts import (
     KEY_USER,
     KEY_PASSWORD,
+    KEY_DATASOURCE,
     KEY_EXPIRED_FROM_DPLA,
     KEY_EXPIRED_FROM_ANY,
     KEY_EXPIRING_FROM_DPLA,
@@ -10,7 +11,10 @@ from cart_api_scripts import (
     TRUE_VALUE,
     FALSE_VALUE,
 )
-from cart_api_scripts import CartApiScript
+from cart_api_scripts import CartApiScript, GetDatasourcesScript
+
+
+datasources = GetDatasourcesScript().get_datasources()
 
 class CartApiPlugin(object):
     """ Cart API Plugin entry point.
@@ -38,6 +42,14 @@ class CartApiPlugin(object):
             "label": "Password",
             "description": "DPLA Exchange account password.",
             "type": "input",
+            "required": True,
+        },
+        {
+            "key": KEY_DATASOURCE,
+            "label": "Datasources",
+            "description": "Select DPLA datasource.",
+            "options": datasources,
+            "type": "select",
             "required": True,
         },
         {
